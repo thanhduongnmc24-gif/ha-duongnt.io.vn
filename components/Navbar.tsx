@@ -7,35 +7,34 @@ import Link from "next/link";
 export default function Navbar() {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null); // Thêm biến lưu tên
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    // Hàm kiểm tra danh tính ca trực
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         setUser(session.user);
-        const { data } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+        const { data } = await supabase.from('profiles').select('role, display_name').eq('id', session.user.id).single();
         setRole(data?.role || 'user');
+        setDisplayName(data?.display_name || session.user.email); // Lấy tên, nếu không có thì xài email
       } else {
-        setUser(null);
-        setRole(null);
+        setUser(null); setRole(null); setDisplayName(null);
       }
     };
 
     checkSession();
 
-    // Lắng nghe sự kiện đăng nhập / đăng xuất để cập nhật thanh chào hỏi tức thì
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         setUser(session.user);
-        supabase.from('profiles').select('role').eq('id', session.user.id).single().then(({ data }) => {
+        supabase.from('profiles').select('role, display_name').eq('id', session.user.id).single().then(({ data }) => {
           setRole(data?.role || 'user');
+          setDisplayName(data?.display_name || session.user.email);
         });
       } else {
-        setUser(null);
-        setRole(null);
+        setUser(null); setRole(null); setDisplayName(null);
       }
     });
 
@@ -44,13 +43,11 @@ export default function Navbar() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    // Xóa thẻ từ lưu ở Cookie để người bảo vệ Middleware biết đường chặn lại
     document.cookie = "sb-access-token=; path=/; max-age=0;";
     router.push("/login");
     router.refresh();
   };
 
-  // Nếu đang ở trang đăng nhập thì ẩn thanh điều hướng đi cho sạch giao diện
   if (pathname === "/login") return null;
 
   return (
@@ -69,7 +66,8 @@ export default function Navbar() {
       {user && (
         <div className="flex items-center gap-4">
           <span className="text-sm text-slate-300">
-            Xin chào, <strong className="text-white font-semibold">{user.email}</strong> 
+            {/* Hiển thị cái Tên ở đây nè anh hai */}
+            Xin chào, <strong className="text-white font-semibold">{displayName}</strong> 
             <span className={`ml-2 px-2 py-0.5 rounded text-xs font-bold ${role === 'admin' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-green-500/20 text-green-300 border border-green-500/30'}`}>
               {role === 'admin' ? 'Quản lý' : 'Nhân viên'}
             </span>
