@@ -19,15 +19,11 @@ export default function SanPhamPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   const [firstColWidth, setFirstColWidth] = useState(250);
-  
-  // State quản lý "Ô Thông Minh" (Smart Cell) đang được mở để gõ trực tiếp
   const [editingCell, setEditingCell] = useState<{id: string, col: string} | null>(null);
 
   useEffect(() => {
     fetchSession();
     fetchData();
-    const savedWidth = localStorage.getItem('firstColWidth');
-    if (savedWidth) setFirstColWidth(Number(savedWidth));
   }, []);
 
   const fetchSession = async () => {
@@ -40,12 +36,18 @@ export default function SanPhamPage() {
   };
 
   const fetchData = async () => {
-    const [colsRes, prodsRes] = await Promise.all([
+    // Kéo cùng lúc 3 kho: Cột, Sản phẩm, và Cài đặt chung
+    const [colsRes, prodsRes, settingsRes] = await Promise.all([
       supabase.from('product_columns').select('*').order('order_index', { ascending: true }),
-      supabase.from('products').select('*').order('name', { ascending: true }) 
+      supabase.from('products').select('*').order('name', { ascending: true }),
+      supabase.from('app_settings').select('*')
     ]);
     if (colsRes.data) setColumns(colsRes.data);
     if (prodsRes.data) setProducts(prodsRes.data);
+    if (settingsRes.data) {
+      const widthSetting = settingsRes.data.find(s => s.key === 'firstColWidth');
+      if (widthSetting) setFirstColWidth(Number(widthSetting.value));
+    }
   };
 
   const handleFirstColResizeStart = (e: React.MouseEvent) => {
@@ -58,12 +60,14 @@ export default function SanPhamPage() {
       setFirstColWidth(newWidth); 
     };
 
-    const handleMouseUp = (upEvent: MouseEvent) => {
+    const handleMouseUp = async (upEvent: MouseEvent) => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       const finalWidth = Math.max(150, startWidth + (upEvent.clientX - startX));
       setFirstColWidth(finalWidth);
-      localStorage.setItem('firstColWidth', finalWidth.toString()); 
+      
+      // Bắn thông số độ rộng lên Supabase để User khác cũng thấy được
+      await supabase.from('app_settings').upsert({ key: 'firstColWidth', value: finalWidth.toString() });
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -197,7 +201,7 @@ export default function SanPhamPage() {
           
           {role === 'admin' && (
             <div className="p-4 bg-slate-100 border-b border-slate-200 flex gap-2 items-center">
-              <span className="text-sm font-bold text-slate-500 uppercase">🔧 Cài đặt Cột :</span>
+              <span className="text-sm font-bold text-slate-500 uppercase">🔧 Cài đặt Cột:</span>
               <input type="text" placeholder="Tên thông số (Cơ tính...)" value={newColName} onChange={e => setNewColName(e.target.value)} className="p-2 border rounded-lg outline-none text-sm w-64 focus:border-purple-500" />
               <button onClick={handleAddColumn} className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-all">
                 + Thêm Cột Mới
@@ -267,7 +271,6 @@ export default function SanPhamPage() {
                         </div>
                       </td>
                       
-                      {/* Render Ô Thông Minh */}
                       {columns.map(col => {
                         const cellValue = product.data?.[col.name] || "";
                         const isEditing = editingCell?.id === product.id && editingCell?.col === col.name;
@@ -279,14 +282,13 @@ export default function SanPhamPage() {
                                 autoFocus
                                 defaultValue={cellValue} 
                                 onFocus={(e) => {
-                                  // Đưa con trỏ nhấp nháy xuống cuối cùng khi vừa bật lên
                                   const val = e.target.value;
                                   e.target.value = '';
                                   e.target.value = val;
                                 }}
                                 onBlur={(e) => {
                                   handleCellBlur(product, col.name, e.target.value);
-                                  setEditingCell(null); // Gõ xong thì tắt chế độ sửa
+                                  setEditingCell(null);
                                 }}
                                 className="w-full p-2 bg-white border border-blue-400 rounded outline-none shadow-md resize-none text-sm transition-all z-10"
                                 rows={Math.min(5, Math.max(2, cellValue.split('\n').length))}
