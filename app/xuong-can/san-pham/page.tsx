@@ -21,6 +21,9 @@ export default function SanPhamPage() {
   const [firstColWidth, setFirstColWidth] = useState(250);
   const [editingCell, setEditingCell] = useState<{id: string, col: string} | null>(null);
 
+  // ĐÃ THÊM: State quản lý kiểu sắp xếp (mặc định là theo tên A-Z)
+  const [sortBy, setSortBy] = useState<"name" | "time">("name");
+
   useEffect(() => {
     fetchSession();
     fetchData();
@@ -38,7 +41,7 @@ export default function SanPhamPage() {
   const fetchData = async () => {
     const [colsRes, prodsRes, settingsRes] = await Promise.all([
       supabase.from('product_columns').select('*').order('order_index', { ascending: true }),
-      supabase.from('products').select('*').order('name', { ascending: true }),
+      supabase.from('products').select('*'), // Không cần order ở đấy vì mình sẽ tự sắp xếp linh hoạt ở Client
       supabase.from('app_settings').select('*')
     ]);
     if (colsRes.data) setColumns(colsRes.data);
@@ -49,7 +52,6 @@ export default function SanPhamPage() {
     }
   };
 
-  // ----- CÔNG CỤ DỊCH THỜI GIAN CHUẨN VIỆT NAM -----
   const formatTime = (isoString: string) => {
     if (!isoString) return "";
     const d = new Date(isoString);
@@ -144,7 +146,6 @@ export default function SanPhamPage() {
     document.addEventListener('mouseup', handleMouseUp);
   };
 
-  // ----- QUẢN LÝ SẢN PHẨM & SAO CHÉP -----
   const handleAddProduct = async () => {
     if (!newProductName) return;
     await supabase.from('products').insert({ 
@@ -157,7 +158,6 @@ export default function SanPhamPage() {
     fetchData();
   };
 
-  // NÚT SAO CHÉP: Gọi bảng Modal lên với mã ID giả, chờ xác nhận mới lưu
   const handleCopyProduct = (product: any) => {
     setSelectedProduct({ 
       id: 'NEW_COPY', 
@@ -170,11 +170,9 @@ export default function SanPhamPage() {
   const handleEditProductName = async (product: any) => {
     const newName = prompt("✏️ Nhập tên mới cho sản phẩm này:", product.name);
     if (newName && newName.trim() !== "" && newName !== product.name) {
-      // Nếu là sản phẩm đang copy chưa lưu, chỉ cập nhật biến tạm
       if (product.id === 'NEW_COPY') {
         setSelectedProduct({ ...selectedProduct, name: newName.trim() });
       } else {
-        // Cập nhật tên và chốt luôn thời gian lưu mới nhất
         await supabase.from('products').update({ 
           name: newName.trim(),
           updated_at: new Date().toISOString()
@@ -201,13 +199,12 @@ export default function SanPhamPage() {
     if (product.data?.[colId] === value) return;
 
     const newData = { ...product.data, [colId]: value };
-    // Lưu dữ liệu và cập nhật luôn đồng hồ
     await supabase.from('products').update({ 
       data: newData,
       updated_at: new Date().toISOString()
     }).eq('id', product.id);
     
-    fetchData(); // Tải lại để cập nhật dòng thời gian
+    fetchData(); 
   };
 
   const openProductModal = (product: any) => {
@@ -220,7 +217,6 @@ export default function SanPhamPage() {
     const now = new Date().toISOString();
 
     if (selectedProduct.id === 'NEW_COPY') {
-      // Đang bấm lưu bản SAO CHÉP -> Tạo dòng mới
       await supabase.from('products').insert({
         name: selectedProduct.name,
         data: editData,
@@ -228,7 +224,6 @@ export default function SanPhamPage() {
         updated_at: now
       });
     } else {
-      // Lưu sản phẩm có sẵn -> Update dòng cũ
       await supabase.from('products').update({ 
         data: editData,
         name: selectedProduct.name,
@@ -241,9 +236,21 @@ export default function SanPhamPage() {
     setSelectedProduct(null); 
   };
 
-  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.created_by === userId);
-
+  // ----- ĐÃ NÂNG CẤP: Bộ lọc và Thuật toán sắp xếp Client đa tiến trình -----
+  const sortedAndFilteredProducts = [...products]
+    .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      if (sortBy === "name") {
+        // Sắp xếp từ A - Z theo tên sản phẩm
+        return a.name.localeCompare(b.name, 'vi', { sensitivity: 'base' });
+      } else {
+        // Sắp xếp theo thời gian lưu (Mới nhất lên đầu)
+        const timeA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const timeB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        return timeB - timeA;
+      }
+    });
+const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.created_by === userId);
   return (
     <DashboardLayout>
       <div className="p-6 md:p-10 max-w-full mx-auto w-full font-sans relative">
@@ -281,10 +288,32 @@ export default function SanPhamPage() {
             <table className="w-max min-w-full text-left border-collapse table-fixed">
               <thead className="bg-slate-50 border-b text-slate-600 text-sm">
                 <tr>
-                  <th style={{ width: `${firstColWidth}px`, minWidth: `${firstColWidth}px` }} className="p-4 font-extrabold border-r relative select-none">
+                  
+                  {/* ĐÃ THAY ĐỔI: Tiêu đề Cột Sản Phẩm được gắn Menu th̉a nổi sắp xếp siêu mượt */}
+                  <th style={{ width: `${firstColWidth}px`, minWidth: `${firstColWidth}px` }} className="p-4 font-extrabold border-r relative select-none group">
                     <div className="flex justify-between items-center overflow-hidden">
-                      <span className="truncate">Sản phẩm</span>
+                      <span>Sản phẩm</span>
+                      <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded font-bold">
+                        {sortBy === "name" ? "🔤 A-Z" : "🕒 Mới nhất"}
+                      </span>
                     </div>
+
+                    {/* KHUNG THẢ NỔI SẮP XẾP: Rớt từ đáy tiêu đề xuống, bo góc mô phỏng tab kết nối */}
+                    <div className="absolute top-full left-0 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-all bg-white px-2 py-2 rounded-b-xl shadow-md z-30 items-start border border-t-0 border-slate-200 pointer-events-none group-hover:pointer-events-auto whitespace-nowrap text-xs font-bold text-slate-700">
+                      <button 
+                        onClick={() => setSortBy("name")} 
+                        className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${sortBy === 'name' ? 'text-blue-600 bg-blue-50/80 font-extrabold' : 'hover:bg-slate-50'}`}
+                      >
+                        🔤 Sắp xếp tên từ A - Z
+                      </button>
+                      <button 
+                        onClick={() => setSortBy("time")} 
+                        className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${sortBy === 'time' ? 'text-blue-600 bg-blue-50/80 font-extrabold' : 'hover:bg-slate-50'}`}
+                      >
+                        🕒 Sắp xếp thời gian lưu mới nhất
+                      </button>
+                    </div>
+
                     {role === 'admin' && (
                       <div 
                         onMouseDown={handleFirstColResizeStart}
@@ -296,15 +325,15 @@ export default function SanPhamPage() {
                   
                   {columns.map((col, index) => (
                     <th key={col.id} style={{ width: col.width || '200px', minWidth: col.width || '200px' }} className="p-4 font-bold border-r group relative select-none">
-                      <div className="flex items-center justify-between pr-4 w-full">
-                        <span className="truncate block w-full">{col.name}</span>
+                      <div className="flex items-center justify-between overflow-hidden w-full">
+                        <span className="truncate block pr-2 w-full">{col.name}</span>
                       </div>
                       
                       {role === 'admin' && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all bg-slate-50/95 pl-2 py-1 rounded shadow-sm z-20 items-center border border-slate-200">
-                          <button onClick={() => handleEditColumnName(col)} className="text-amber-500 hover:bg-slate-200 p-1.5 rounded" title="Sửa tên cột">✏️</button>
-                          <button onClick={() => handleMoveColumn(index, 'left')} className="text-blue-600 hover:bg-slate-200 p-1.5 rounded" title="Dịch trái">◀</button>
-                          <button onClick={() => handleMoveColumn(index, 'right')} className="text-blue-600 hover:bg-slate-200 p-1.5 rounded" title="Dịch phải">▶</button>
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all bg-white px-2 py-1.5 rounded-b-xl shadow-md z-30 items-center border border-t-0 border-slate-200 pointer-events-none group-hover:pointer-events-auto whitespace-nowrap">
+                          <button onClick={() => handleEditColumnName(col)} className="text-amber-500 hover:bg-slate-200 p-1 rounded" title="Sửa tên cột">✏️</button>
+                          <button onClick={() => handleMoveColumn(index, 'left')} className="text-blue-600 hover:bg-slate-200 p-1 rounded" title="Dịch trái">◀</button>
+                          <button onClick={() => handleMoveColumn(index, 'right')} className="text-blue-600 hover:bg-slate-200 p-1 rounded" title="Dịch phải">▶</button>
                           <button onClick={() => handleDeleteColumn(col.id)} className="text-red-500 hover:text-red-700 hover:bg-slate-200 p-1.5 rounded transition-colors" title="Xóa cột">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
@@ -324,7 +353,8 @@ export default function SanPhamPage() {
                 </tr>
               </thead>
               <tbody className="divide-y text-slate-700">
-                {filteredProducts.map(product => {
+                {/* ĐÃ THAY ĐỔI: Sử dụng mảng đã qua sắp xếp sortedAndFilteredProducts */}
+                {sortedAndFilteredProducts.map(product => {
                   const isOwnerOrAdmin = role === 'admin' || product.created_by === userId;
                   return (
                     <tr key={product.id} className="hover:bg-blue-50/50 transition-colors group/prod">
@@ -335,7 +365,6 @@ export default function SanPhamPage() {
                             {product.name}
                           </button>
                           
-                          {/* ĐÃ THÊM: Thời gian lưu hiển thị phía dưới tên mác thép */}
                           {product.updated_at && (
                             <div className="text-[11px] text-slate-400 font-medium mt-1.5 flex items-center gap-1">
                               <span>🕒</span> {formatTime(product.updated_at)}
@@ -343,9 +372,7 @@ export default function SanPhamPage() {
                           )}
                         </div>
 
-                        {/* ĐÃ THÊM: Nút COPY và các nút hành động đặt tuyệt đối để không làm xô lệch giao diện */}
                         <div className="absolute top-4 right-2 flex gap-1 opacity-0 group-hover/prod:opacity-100 transition-all bg-white/95 px-1 py-1 rounded shadow-sm border border-slate-200 z-10">
-                          {/* Nút COPY ai cũng bấm được */}
                           <button onClick={() => handleCopyProduct(product)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1 rounded" title="Sao chép SP này">
                             📑
                           </button>
@@ -399,7 +426,7 @@ export default function SanPhamPage() {
                     </tr>
                   );
                 })}
-                {filteredProducts.length === 0 && (
+                {sortedAndFilteredProducts.length === 0 && (
                   <tr>
                     <td colSpan={100} className="p-8 text-center text-slate-400 italic">Không tìm thấy sản phẩm nào!</td>
                   </tr>
@@ -419,7 +446,6 @@ export default function SanPhamPage() {
                   <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-extrabold text-blue-700">📦 {selectedProduct.name}</h2>
                     
-                    {/* Báo hiệu đang copy bằng nhãn dán xanh mướt */}
                     {selectedProduct.id === 'NEW_COPY' && (
                       <span className="px-2 py-0.5 bg-green-100 text-green-700 font-bold text-xs rounded-full border border-green-200">
                         ✨ ĐANG SAO CHÉP
