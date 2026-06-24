@@ -21,7 +21,6 @@ export default function SanPhamPage() {
   const [firstColWidth, setFirstColWidth] = useState(250);
   const [editingCell, setEditingCell] = useState<{id: string, col: string} | null>(null);
 
-  // ĐÃ THÊM: State quản lý kiểu sắp xếp (mặc định là theo tên A-Z)
   const [sortBy, setSortBy] = useState<"name" | "time">("name");
 
   useEffect(() => {
@@ -41,7 +40,7 @@ export default function SanPhamPage() {
   const fetchData = async () => {
     const [colsRes, prodsRes, settingsRes] = await Promise.all([
       supabase.from('product_columns').select('*').order('order_index', { ascending: true }),
-      supabase.from('products').select('*'), // Không cần order ở đấy vì mình sẽ tự sắp xếp linh hoạt ở Client
+      supabase.from('products').select('*'),
       supabase.from('app_settings').select('*')
     ]);
     if (colsRes.data) setColumns(colsRes.data);
@@ -236,21 +235,20 @@ export default function SanPhamPage() {
     setSelectedProduct(null); 
   };
 
-  // ----- ĐÃ NÂNG CẤP: Bộ lọc và Thuật toán sắp xếp Client đa tiến trình -----
   const sortedAndFilteredProducts = [...products]
     .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
       if (sortBy === "name") {
-        // Sắp xếp từ A - Z theo tên sản phẩm
         return a.name.localeCompare(b.name, 'vi', { sensitivity: 'base' });
       } else {
-        // Sắp xếp theo thời gian lưu (Mới nhất lên đầu)
         const timeA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
         const timeB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
         return timeB - timeA;
       }
     });
-const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.created_by === userId);
+
+  const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.created_by === userId);
+
   return (
     <DashboardLayout>
       <div className="p-6 md:p-10 max-w-full mx-auto w-full font-sans relative">
@@ -289,7 +287,6 @@ const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.
               <thead className="bg-slate-50 border-b text-slate-600 text-sm">
                 <tr>
                   
-                  {/* ĐÃ THAY ĐỔI: Tiêu đề Cột Sản Phẩm được gắn Menu th̉a nổi sắp xếp siêu mượt */}
                   <th style={{ width: `${firstColWidth}px`, minWidth: `${firstColWidth}px` }} className="p-4 font-extrabold border-r relative select-none group">
                     <div className="flex justify-between items-center overflow-hidden">
                       <span>Sản phẩm</span>
@@ -298,17 +295,16 @@ const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.
                       </span>
                     </div>
 
-                    {/* KHUNG THẢ NỔI SẮP XẾP: Rớt từ đáy tiêu đề xuống, bo góc mô phỏng tab kết nối */}
-                    <div className="absolute top-full left-0 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-all bg-white px-2 py-2 rounded-b-xl shadow-md z-30 items-start border border-t-0 border-slate-200 pointer-events-none group-hover:pointer-events-auto whitespace-nowrap text-xs font-bold text-slate-700">
+                    <div className="absolute top-full left-0 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-all bg-slate-800 text-slate-200 px-2 py-2 rounded-b-xl shadow-xl z-30 items-start border border-t-0 border-slate-700 pointer-events-none group-hover:pointer-events-auto whitespace-nowrap text-xs font-bold">
                       <button 
                         onClick={() => setSortBy("name")} 
-                        className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${sortBy === 'name' ? 'text-blue-600 bg-blue-50/80 font-extrabold' : 'hover:bg-slate-50'}`}
+                        className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${sortBy === 'name' ? 'text-blue-400 bg-slate-700 font-extrabold' : 'hover:bg-slate-700 hover:text-white'}`}
                       >
                         🔤 Sắp xếp tên từ A - Z
                       </button>
                       <button 
                         onClick={() => setSortBy("time")} 
-                        className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${sortBy === 'time' ? 'text-blue-600 bg-blue-50/80 font-extrabold' : 'hover:bg-slate-50'}`}
+                        className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${sortBy === 'time' ? 'text-blue-400 bg-slate-700 font-extrabold' : 'hover:bg-slate-700 hover:text-white'}`}
                       >
                         🕒 Sắp xếp thời gian lưu mới nhất
                       </button>
@@ -330,11 +326,11 @@ const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.
                       </div>
                       
                       {role === 'admin' && (
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all bg-white px-2 py-1.5 rounded-b-xl shadow-md z-30 items-center border border-t-0 border-slate-200 pointer-events-none group-hover:pointer-events-auto whitespace-nowrap">
-                          <button onClick={() => handleEditColumnName(col)} className="text-amber-500 hover:bg-slate-200 p-1 rounded" title="Sửa tên cột">✏️</button>
-                          <button onClick={() => handleMoveColumn(index, 'left')} className="text-blue-600 hover:bg-slate-200 p-1 rounded" title="Dịch trái">◀</button>
-                          <button onClick={() => handleMoveColumn(index, 'right')} className="text-blue-600 hover:bg-slate-200 p-1 rounded" title="Dịch phải">▶</button>
-                          <button onClick={() => handleDeleteColumn(col.id)} className="text-red-500 hover:text-red-700 hover:bg-slate-200 p-1.5 rounded transition-colors" title="Xóa cột">
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all bg-slate-800 px-2 py-1.5 rounded-b-xl shadow-xl z-30 items-center border border-t-0 border-slate-700 pointer-events-none group-hover:pointer-events-auto whitespace-nowrap">
+                          <button onClick={() => handleEditColumnName(col)} className="text-amber-400 hover:bg-slate-700 p-1.5 rounded transition-colors" title="Sửa tên cột">✏️</button>
+                          <button onClick={() => handleMoveColumn(index, 'left')} className="text-blue-400 hover:bg-slate-700 p-1.5 rounded transition-colors" title="Dịch trái">◀</button>
+                          <button onClick={() => handleMoveColumn(index, 'right')} className="text-blue-400 hover:bg-slate-700 p-1.5 rounded transition-colors" title="Dịch phải">▶</button>
+                          <button onClick={() => handleDeleteColumn(col.id)} className="text-red-400 hover:text-red-300 hover:bg-slate-700 p-1.5 rounded transition-colors" title="Xóa cột">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
                         </div>
@@ -353,7 +349,6 @@ const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.
                 </tr>
               </thead>
               <tbody className="divide-y text-slate-700">
-                {/* ĐÃ THAY ĐỔI: Sử dụng mảng đã qua sắp xếp sortedAndFilteredProducts */}
                 {sortedAndFilteredProducts.map(product => {
                   const isOwnerOrAdmin = role === 'admin' || product.created_by === userId;
                   return (
@@ -372,15 +367,16 @@ const canEditSelected = selectedProduct && (role === 'admin' || selectedProduct.
                           )}
                         </div>
 
-                        <div className="absolute top-4 right-2 flex gap-1 opacity-0 group-hover/prod:opacity-100 transition-all bg-white/95 px-1 py-1 rounded shadow-sm border border-slate-200 z-10">
-                          <button onClick={() => handleCopyProduct(product)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1 rounded" title="Sao chép SP này">
+                        {/* ĐÃ ĐỘ MÀU CHUẨN XỊN: Khung chức năng trong ô sản phẩm đã đổi sang nền Slate-800 và chữ nêon nét căng! */}
+                        <div className="absolute top-4 right-2 flex gap-1 opacity-0 group-hover/prod:opacity-100 transition-all bg-slate-800 text-slate-200 px-1.5 py-1 rounded-xl shadow-xl border border-slate-700 z-10 items-center">
+                          <button onClick={() => handleCopyProduct(product)} className="text-blue-400 hover:bg-slate-700 p-1 rounded transition-colors" title="Sao chép SP này">
                             📑
                           </button>
                           
                           {isOwnerOrAdmin && (
                             <>
-                              <button onClick={() => handleEditProductName(product)} className="text-amber-500 hover:text-amber-700 hover:bg-amber-50 p-1 rounded font-bold text-sm" title="Sửa tên sản phẩm">✏️</button>
-                              <button onClick={() => handleDeleteProduct(product)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded" title="Xóa SP này">
+                              <button onClick={() => handleEditProductName(product)} className="text-amber-400 hover:bg-slate-700 p-1 rounded font-bold text-sm transition-colors" title="Sửa tên sản phẩm">✏️</button>
+                              <button onClick={() => handleDeleteProduct(product)} className="text-red-400 hover:text-red-300 hover:bg-slate-700 p-1.5 rounded transition-colors" title="Xóa SP này">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                               </button>
                             </>
