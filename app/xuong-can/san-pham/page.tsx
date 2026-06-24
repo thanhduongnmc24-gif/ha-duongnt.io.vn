@@ -36,7 +36,6 @@ export default function SanPhamPage() {
   };
 
   const fetchData = async () => {
-    // Kéo cùng lúc 3 kho: Cột, Sản phẩm, và Cài đặt chung
     const [colsRes, prodsRes, settingsRes] = await Promise.all([
       supabase.from('product_columns').select('*').order('order_index', { ascending: true }),
       supabase.from('products').select('*').order('name', { ascending: true }),
@@ -65,8 +64,6 @@ export default function SanPhamPage() {
       document.removeEventListener('mouseup', handleMouseUp);
       const finalWidth = Math.max(150, startWidth + (upEvent.clientX - startX));
       setFirstColWidth(finalWidth);
-      
-      // Bắn thông số độ rộng lên Supabase để User khác cũng thấy được
       await supabase.from('app_settings').upsert({ key: 'firstColWidth', value: finalWidth.toString() });
     };
 
@@ -91,7 +88,7 @@ export default function SanPhamPage() {
   };
 
   const handleDeleteColumn = async (id: string) => {
-    if (!confirm("⚠️ Chắc chắn xóa cột thông số này?")) return;
+    if (!confirm("⚠️ Chắc chắn xóa cột thông số này? Toàn bộ dữ liệu của cột này sẽ bị ẩn đi.")) return;
     await supabase.from('product_columns').delete().eq('id', id);
     fetchData();
   };
@@ -151,11 +148,11 @@ export default function SanPhamPage() {
     fetchData();
   };
 
-  const handleCellBlur = async (product: any, colName: string, value: string) => {
+  const handleCellBlur = async (product: any, colId: string, value: string) => {
     if (role !== 'admin' && product.created_by !== userId) return;
-    if (product.data?.[colName] === value) return;
+    if (product.data?.[colId] === value) return;
 
-    const newData = { ...product.data, [colName]: value };
+    const newData = { ...product.data, [colId]: value };
     await supabase.from('products').update({ data: newData }).eq('id', product.id);
     setProducts(products.map(p => p.id === product.id ? { ...p, data: newData } : p));
   };
@@ -231,11 +228,13 @@ export default function SanPhamPage() {
                       <div className="flex justify-between items-center overflow-hidden">
                         <span className="truncate">{col.name}</span>
                         {role === 'admin' && (
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all bg-white/90 px-1 rounded absolute mt-8 shadow border z-20">
-                            <button onClick={() => handleEditColumnName(col)} className="text-amber-500 hover:bg-slate-200 p-1 rounded" title="Sửa tên cột">✏️</button>
-                            <button onClick={() => handleMoveColumn(index, 'left')} className="text-blue-600 hover:bg-slate-200 p-1 rounded" title="Dịch trái">◀</button>
-                            <button onClick={() => handleMoveColumn(index, 'right')} className="text-blue-600 hover:bg-slate-200 p-1 rounded" title="Dịch phải">▶</button>
-                            <button onClick={() => handleDeleteColumn(col.id)} className="text-red-500 hover:bg-slate-200 p-1 rounded" title="Xóa cột">🗑️</button>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all bg-white/90 px-1 rounded absolute mt-8 shadow border z-20 items-center">
+                            <button onClick={() => handleEditColumnName(col)} className="text-amber-500 hover:bg-slate-200 p-1.5 rounded" title="Sửa tên cột">✏️</button>
+                            <button onClick={() => handleMoveColumn(index, 'left')} className="text-blue-600 hover:bg-slate-200 p-1.5 rounded" title="Dịch trái">◀</button>
+                            <button onClick={() => handleMoveColumn(index, 'right')} className="text-blue-600 hover:bg-slate-200 p-1.5 rounded" title="Dịch phải">▶</button>
+                            <button onClick={() => handleDeleteColumn(col.id)} className="text-red-500 hover:text-red-700 hover:bg-slate-200 p-1.5 rounded transition-colors" title="Xóa cột">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
                           </div>
                         )}
                       </div>
@@ -264,16 +263,16 @@ export default function SanPhamPage() {
                             {product.name}
                           </button>
                           {isOwnerOrAdmin && (
-                            <button onClick={() => handleDeleteProduct(product)} className="text-red-300 hover:text-red-600 opacity-0 group-hover/prod:opacity-100 transition-all text-xs ml-2 flex-shrink-0 mt-1" title="Xóa SP này">
-                              🗑️
+                            <button onClick={() => handleDeleteProduct(product)} className="text-red-500 hover:text-red-700 opacity-0 group-hover/prod:opacity-100 transition-all ml-2 flex-shrink-0 mt-1" title="Xóa SP này">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           )}
                         </div>
                       </td>
                       
                       {columns.map(col => {
-                        const cellValue = product.data?.[col.name] || "";
-                        const isEditing = editingCell?.id === product.id && editingCell?.col === col.name;
+                        const cellValue = product.data?.[col.id] || "";
+                        const isEditing = editingCell?.id === product.id && editingCell?.col === col.id;
 
                         return (
                           <td key={col.id} style={{ width: col.width || '200px', minWidth: col.width || '200px' }} className="p-2 border-r align-top relative">
@@ -287,7 +286,7 @@ export default function SanPhamPage() {
                                   e.target.value = val;
                                 }}
                                 onBlur={(e) => {
-                                  handleCellBlur(product, col.name, e.target.value);
+                                  handleCellBlur(product, col.id, e.target.value);
                                   setEditingCell(null);
                                 }}
                                 className="w-full p-2 bg-white border border-blue-400 rounded outline-none shadow-md resize-none text-sm transition-all z-10"
@@ -295,7 +294,7 @@ export default function SanPhamPage() {
                               />
                             ) : (
                               <div
-                                onClick={() => { if(isOwnerOrAdmin) setEditingCell({id: product.id, col: col.name}) }}
+                                onClick={() => { if(isOwnerOrAdmin) setEditingCell({id: product.id, col: col.id}) }}
                                 className={`w-full p-2 min-h-[40px] rounded text-sm whitespace-pre-line break-words line-clamp-4 ${isOwnerOrAdmin ? 'cursor-text hover:bg-white/60' : 'text-slate-500 cursor-not-allowed'}`}
                                 title={isOwnerOrAdmin ? "Nhấp chuột vào để nhập/sửa trực tiếp" : ""}
                               >
@@ -319,7 +318,7 @@ export default function SanPhamPage() {
           </div>
         </div>
 
-        {/* MODAL BẢNG TO CHI TIẾT SẢN PHẨM */}
+        {/* MODAL BẢNG TO CHI TIẾT SẢN PHẨM (ĐÃ ĐỘ CO GIÃN THEO HÀNG CHUẨN ĐẸP) */}
         {selectedProduct && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 md:p-8 animate-fade-in">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-full">
@@ -335,18 +334,26 @@ export default function SanPhamPage() {
               </div>
               
               <div className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50">
-                {columns.map(col => (
-                  <div key={col.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
-                    <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wide">{col.name}</label>
-                    <textarea 
-                      value={editData[col.name] || ""}
-                      onChange={e => setEditData({...editData, [col.name]: e.target.value})}
-                      disabled={!canEditSelected}
-                      placeholder={canEditSelected ? "Nhập thông số..." : "Trống"}
-                      className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 min-h-[100px] text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-all"
-                    />
-                  </div>
-                ))}
+                {columns.map(col => {
+                  const textValue = editData[col.id] || "";
+                  // Thuật toán đếm số dòng dữ liệu thực tế
+                  const lineCount = textValue.split('\n').length;
+
+                  return (
+                    <div key={col.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col">
+                      <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wide">{col.name}</label>
+                      <textarea 
+                        value={textValue}
+                        onChange={e => setEditData({...editData, [col.id]: e.target.value})}
+                        disabled={!canEditSelected}
+                        // SỬA ĐỔI CHÍNH: Tự giãn chiều cao, tối thiểu là 4 hàng, nhiều hơn tự nở ra theo data!
+                        rows={Math.max(4, lineCount)}
+                        placeholder={canEditSelected ? "Nhập thông số..." : "Trống"}
+                        className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-all resize-none"
+                      />
+                    </div>
+                  );
+                })}
               </div>
               
               <div className="p-6 border-t border-slate-100 flex justify-end gap-4 rounded-b-2xl bg-white">
