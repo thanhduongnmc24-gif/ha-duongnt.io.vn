@@ -49,6 +49,18 @@ export default function SanPhamPage() {
     }
   };
 
+  // ----- CÔNG CỤ DỊCH THỜI GIAN CHUẨN VIỆT NAM -----
+  const formatTime = (isoString: string) => {
+    if (!isoString) return "";
+    const d = new Date(isoString);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${hh}:${mm} ngày ${dd}/${mo}/${yyyy}`;
+  };
+
   const handleFirstColResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
@@ -132,11 +144,47 @@ export default function SanPhamPage() {
     document.addEventListener('mouseup', handleMouseUp);
   };
 
+  // ----- QUẢN LÝ SẢN PHẨM & SAO CHÉP -----
   const handleAddProduct = async () => {
     if (!newProductName) return;
-    await supabase.from('products').insert({ name: newProductName, data: {}, created_by: userId });
+    await supabase.from('products').insert({ 
+      name: newProductName, 
+      data: {}, 
+      created_by: userId,
+      updated_at: new Date().toISOString()
+    });
     setNewProductName("");
     fetchData();
+  };
+
+  // NÚT SAO CHÉP: Gọi bảng Modal lên với mã ID giả, chờ xác nhận mới lưu
+  const handleCopyProduct = (product: any) => {
+    setSelectedProduct({ 
+      id: 'NEW_COPY', 
+      name: product.name, 
+      created_by: userId 
+    });
+    setEditData(product.data || {});
+  };
+
+  const handleEditProductName = async (product: any) => {
+    const newName = prompt("✏️ Nhập tên mới cho sản phẩm này:", product.name);
+    if (newName && newName.trim() !== "" && newName !== product.name) {
+      // Nếu là sản phẩm đang copy chưa lưu, chỉ cập nhật biến tạm
+      if (product.id === 'NEW_COPY') {
+        setSelectedProduct({ ...selectedProduct, name: newName.trim() });
+      } else {
+        // Cập nhật tên và chốt luôn thời gian lưu mới nhất
+        await supabase.from('products').update({ 
+          name: newName.trim(),
+          updated_at: new Date().toISOString()
+        }).eq('id', product.id);
+        fetchData();
+        if (selectedProduct && selectedProduct.id === product.id) {
+          setSelectedProduct({ ...selectedProduct, name: newName.trim() });
+        }
+      }
+    }
   };
 
   const handleDeleteProduct = async (product: any) => {
@@ -153,8 +201,13 @@ export default function SanPhamPage() {
     if (product.data?.[colId] === value) return;
 
     const newData = { ...product.data, [colId]: value };
-    await supabase.from('products').update({ data: newData }).eq('id', product.id);
-    setProducts(products.map(p => p.id === product.id ? { ...p, data: newData } : p));
+    // Lưu dữ liệu và cập nhật luôn đồng hồ
+    await supabase.from('products').update({ 
+      data: newData,
+      updated_at: new Date().toISOString()
+    }).eq('id', product.id);
+    
+    fetchData(); // Tải lại để cập nhật dòng thời gian
   };
 
   const openProductModal = (product: any) => {
@@ -164,8 +217,26 @@ export default function SanPhamPage() {
 
   const saveProductData = async () => {
     setIsSaving(true);
-    await supabase.from('products').update({ data: editData }).eq('id', selectedProduct.id);
-    setProducts(products.map(p => p.id === selectedProduct.id ? { ...p, data: editData } : p));
+    const now = new Date().toISOString();
+
+    if (selectedProduct.id === 'NEW_COPY') {
+      // Đang bấm lưu bản SAO CHÉP -> Tạo dòng mới
+      await supabase.from('products').insert({
+        name: selectedProduct.name,
+        data: editData,
+        created_by: userId,
+        updated_at: now
+      });
+    } else {
+      // Lưu sản phẩm có sẵn -> Update dòng cũ
+      await supabase.from('products').update({ 
+        data: editData,
+        name: selectedProduct.name,
+        updated_at: now 
+      }).eq('id', selectedProduct.id);
+    }
+    
+    fetchData(); 
     setIsSaving(false);
     setSelectedProduct(null); 
   };
@@ -225,19 +296,20 @@ export default function SanPhamPage() {
                   
                   {columns.map((col, index) => (
                     <th key={col.id} style={{ width: col.width || '200px', minWidth: col.width || '200px' }} className="p-4 font-bold border-r group relative select-none">
-                      <div className="flex justify-between items-center overflow-hidden">
-                        <span className="truncate">{col.name}</span>
-                        {role === 'admin' && (
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all bg-white/90 px-1 rounded absolute mt-8 shadow border z-20 items-center">
-                            <button onClick={() => handleEditColumnName(col)} className="text-amber-500 hover:bg-slate-200 p-1.5 rounded" title="Sửa tên cột">✏️</button>
-                            <button onClick={() => handleMoveColumn(index, 'left')} className="text-blue-600 hover:bg-slate-200 p-1.5 rounded" title="Dịch trái">◀</button>
-                            <button onClick={() => handleMoveColumn(index, 'right')} className="text-blue-600 hover:bg-slate-200 p-1.5 rounded" title="Dịch phải">▶</button>
-                            <button onClick={() => handleDeleteColumn(col.id)} className="text-red-500 hover:text-red-700 hover:bg-slate-200 p-1.5 rounded transition-colors" title="Xóa cột">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                        )}
+                      <div className="flex items-center justify-between pr-4 w-full">
+                        <span className="truncate block w-full">{col.name}</span>
                       </div>
+                      
+                      {role === 'admin' && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all bg-slate-50/95 pl-2 py-1 rounded shadow-sm z-20 items-center border border-slate-200">
+                          <button onClick={() => handleEditColumnName(col)} className="text-amber-500 hover:bg-slate-200 p-1.5 rounded" title="Sửa tên cột">✏️</button>
+                          <button onClick={() => handleMoveColumn(index, 'left')} className="text-blue-600 hover:bg-slate-200 p-1.5 rounded" title="Dịch trái">◀</button>
+                          <button onClick={() => handleMoveColumn(index, 'right')} className="text-blue-600 hover:bg-slate-200 p-1.5 rounded" title="Dịch phải">▶</button>
+                          <button onClick={() => handleDeleteColumn(col.id)} className="text-red-500 hover:text-red-700 hover:bg-slate-200 p-1.5 rounded transition-colors" title="Xóa cột">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      )}
                       
                       {role === 'admin' && (
                         <div 
@@ -257,15 +329,34 @@ export default function SanPhamPage() {
                   return (
                     <tr key={product.id} className="hover:bg-blue-50/50 transition-colors group/prod">
                       
-                      <td style={{ width: `${firstColWidth}px`, minWidth: `${firstColWidth}px` }} className="p-4 border-r bg-slate-50/50 align-top">
-                        <div className="flex justify-between items-start">
-                          <button onClick={() => openProductModal(product)} className="font-extrabold text-blue-600 hover:text-blue-800 hover:underline text-left w-full break-words" title="Bấm để mở bảng chi tiết">
+                      <td style={{ width: `${firstColWidth}px`, minWidth: `${firstColWidth}px` }} className="p-4 border-r bg-slate-50/50 align-top relative">
+                        <div className="flex flex-col justify-start w-full">
+                          <button onClick={() => openProductModal(product)} className="font-extrabold text-blue-600 hover:text-blue-800 hover:underline text-left w-full break-words pr-12" title="Bấm để mở bảng chi tiết">
                             {product.name}
                           </button>
+                          
+                          {/* ĐÃ THÊM: Thời gian lưu hiển thị phía dưới tên mác thép */}
+                          {product.updated_at && (
+                            <div className="text-[11px] text-slate-400 font-medium mt-1.5 flex items-center gap-1">
+                              <span>🕒</span> {formatTime(product.updated_at)}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* ĐÃ THÊM: Nút COPY và các nút hành động đặt tuyệt đối để không làm xô lệch giao diện */}
+                        <div className="absolute top-4 right-2 flex gap-1 opacity-0 group-hover/prod:opacity-100 transition-all bg-white/95 px-1 py-1 rounded shadow-sm border border-slate-200 z-10">
+                          {/* Nút COPY ai cũng bấm được */}
+                          <button onClick={() => handleCopyProduct(product)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1 rounded" title="Sao chép SP này">
+                            📑
+                          </button>
+                          
                           {isOwnerOrAdmin && (
-                            <button onClick={() => handleDeleteProduct(product)} className="text-red-500 hover:text-red-700 opacity-0 group-hover/prod:opacity-100 transition-all ml-2 flex-shrink-0 mt-1" title="Xóa SP này">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
+                            <>
+                              <button onClick={() => handleEditProductName(product)} className="text-amber-500 hover:text-amber-700 hover:bg-amber-50 p-1 rounded font-bold text-sm" title="Sửa tên sản phẩm">✏️</button>
+                              <button onClick={() => handleDeleteProduct(product)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded" title="Xóa SP này">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -318,14 +409,32 @@ export default function SanPhamPage() {
           </div>
         </div>
 
-        {/* MODAL BẢNG TO CHI TIẾT SẢN PHẨM (ĐÃ ĐỘ CO GIÃN THEO HÀNG CHUẨN ĐẸP) */}
+        {/* MODAL BẢNG TO CHI TIẾT SẢN PHẨM */}
         {selectedProduct && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 md:p-8 animate-fade-in">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-full">
               
               <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
                 <div>
-                  <h2 className="text-2xl font-extrabold text-blue-700">📦 {selectedProduct.name}</h2>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-2xl font-extrabold text-blue-700">📦 {selectedProduct.name}</h2>
+                    
+                    {/* Báo hiệu đang copy bằng nhãn dán xanh mướt */}
+                    {selectedProduct.id === 'NEW_COPY' && (
+                      <span className="px-2 py-0.5 bg-green-100 text-green-700 font-bold text-xs rounded-full border border-green-200">
+                        ✨ ĐANG SAO CHÉP
+                      </span>
+                    )}
+
+                    {canEditSelected && (
+                      <button 
+                        onClick={() => handleEditProductName(selectedProduct)}
+                        className="bg-white border border-slate-200 text-amber-500 px-3 py-1 rounded-lg text-xs font-bold shadow-sm hover:bg-amber-50 transition-all flex items-center gap-1"
+                      >
+                        ✏️ Đổi tên SP
+                      </button>
+                    )}
+                  </div>
                   {!canEditSelected && (
                     <p className="text-xs text-red-500 font-bold mt-1">⚠️ Bạn đang ở chế độ Chỉ Xem (Sản phẩm này do người khác tạo).</p>
                   )}
@@ -336,7 +445,6 @@ export default function SanPhamPage() {
               <div className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50">
                 {columns.map(col => {
                   const textValue = editData[col.id] || "";
-                  // Thuật toán đếm số dòng dữ liệu thực tế
                   const lineCount = textValue.split('\n').length;
 
                   return (
@@ -346,7 +454,6 @@ export default function SanPhamPage() {
                         value={textValue}
                         onChange={e => setEditData({...editData, [col.id]: e.target.value})}
                         disabled={!canEditSelected}
-                        // SỬA ĐỔI CHÍNH: Tự giãn chiều cao, tối thiểu là 4 hàng, nhiều hơn tự nở ra theo data!
                         rows={Math.max(4, lineCount)}
                         placeholder={canEditSelected ? "Nhập thông số..." : "Trống"}
                         className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-all resize-none"
@@ -357,7 +464,9 @@ export default function SanPhamPage() {
               </div>
               
               <div className="p-6 border-t border-slate-100 flex justify-end gap-4 rounded-b-2xl bg-white">
-                <button onClick={() => setSelectedProduct(null)} className="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-all">Đóng bảng</button>
+                <button onClick={() => setSelectedProduct(null)} className="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-all">
+                  {selectedProduct.id === 'NEW_COPY' ? 'Hủy Sao Chép' : 'Đóng bảng'}
+                </button>
                 {canEditSelected && (
                   <button onClick={saveProductData} disabled={isSaving} className="px-6 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-all shadow-md shadow-blue-500/30 disabled:bg-slate-400">
                     {isSaving ? "Đang lưu..." : "💾 Lưu Dữ Liệu"}
