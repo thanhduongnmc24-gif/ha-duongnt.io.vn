@@ -349,13 +349,14 @@ export default function SanPhamPage() {
                 </tr>
               </thead>
               <tbody className="divide-y text-slate-700">
-                {sortedAndFilteredProducts.map(product => {
-                  const isOwnerOrAdmin = role === 'admin' || product.created_by === userId;
-                  return (
-                    <tr key={product.id} className="hover:bg-blue-50/50 transition-colors group/prod">
-                      
-                      <td style={{ width: `${firstColWidth}px`, minWidth: `${firstColWidth}px` }} className="p-4 border-r bg-slate-50/50 align-top relative">
-                        <div className="flex flex-col justify-start w-full">
+  {sortedAndFilteredProducts.map(product => {
+    const isOwnerOrAdmin = role === 'admin' || product.created_by === userId;
+    return (
+      // 1. Xóa chữ group/prod ở thẻ tr này đi anh hai nhé 👇
+      <tr key={product.id} className="hover:bg-blue-50/50 transition-colors">
+        
+        {/* 2. Thêm chữ group/prod vào tận cùng cái className của thẻ td này là xong ngay 👇 */}
+        <td style={{ width: `${firstColWidth}px`, minWidth: `${firstColWidth}px` }} className="p-4 border-r bg-slate-50/50 align-top relative group/prod"> <div className="flex flex-col justify-start w-full">
                           <button onClick={() => openProductModal(product)} className="font-extrabold text-blue-600 hover:text-blue-800 hover:underline text-left w-full break-words pr-12" title="Bấm để mở bảng chi tiết">
                             {product.name}
                           </button>
