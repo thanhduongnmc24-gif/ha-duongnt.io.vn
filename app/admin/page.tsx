@@ -15,8 +15,8 @@ export default function AdminPage() {
   const [designingPage, setDesigningPage] = useState<any | null>(null);
   const [pageBlocks, setPageBlocks] = useState<any[]>([]);
   
-  // Trạng thái quản lý Modal Thêm/Sửa Cấu Hình Menu
   const [editingPageMeta, setEditingPageMeta] = useState<any | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -30,8 +30,19 @@ export default function AdminPage() {
   };
 
   const fetchPages = async () => {
-    const { data } = await supabase.from("custom_pages").select("*").order("order_index", { ascending: true }).order("created_at", { ascending: true });
-    if (data) setCustomPages(data);
+    const { data } = await supabase.from("custom_pages").select("*");
+    if (data) {
+      const sortedData = data.sort((a, b) => {
+        const groupA = (a.group_name || "Z_KHÁC").toUpperCase();
+        const groupB = (b.group_name || "Z_KHÁC").toUpperCase();
+        if (groupA !== groupB) return groupA.localeCompare(groupB, 'vi');
+        const folderA = (a.folder_name || "").toUpperCase();
+        const folderB = (b.folder_name || "").toUpperCase();
+        if (folderA !== folderB) return folderA.localeCompare(folderB, 'vi');
+        return (a.order_index || 0) - (b.order_index || 0);
+      });
+      setCustomPages(sortedData);
+    }
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -67,10 +78,8 @@ export default function AdminPage() {
     }
   };
 
-  // ----- LOGIC ĐIỀU HÀNH MENU & TRANG -----
   const handleSavePageMeta = async () => {
     if (!editingPageMeta.title) return alert("Vui lòng nhập tên Menu!");
-    
     const payload = {
       title: editingPageMeta.title,
       icon: editingPageMeta.icon || '📄',
@@ -103,30 +112,80 @@ export default function AdminPage() {
   };
 
   const handleAddBlock = (type: "heading" | "text") => {
-    setPageBlocks([...pageBlocks, { type, content: "" }]);
+    const newBlock = {
+      id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type,
+      title: "",
+      content: "",
+      imageUrl: "",
+      width: "col-span-12", 
+      bgColor: "bg-white",
+      textColor: "text-slate-800",
+      textSize: type === "heading" ? "text-xl" : "text-sm",
+    };
+    setPageBlocks([...pageBlocks, newBlock]);
+    setTimeout(() => {
+      const container = document.getElementById('designer-workspace');
+      if (container) container.scrollTop = container.scrollHeight;
+    }, 100);
   };
 
-  const handleBlockChange = (index: number, value: string) => {
+  const handleDuplicateBlock = (index: number) => {
+    const blockToCopy = pageBlocks[index];
+    const newBlock = {
+      ...blockToCopy,
+      id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, 
+    };
     const updated = [...pageBlocks];
-    updated[index].content = value;
+    updated.splice(index + 1, 0, newBlock);
+    setPageBlocks(updated);
+  };
+
+  const handleBlockPropChange = (index: number, key: string, value: string) => {
+    const updated = [...pageBlocks];
+    updated[index] = { ...updated[index], [key]: value };
     setPageBlocks(updated);
   };
 
   const handleRemoveBlock = (index: number) => {
+    if (!confirm("🗑️ Anh hai có chắc chắn muốn xóa khối nội dung này không?")) return;
     setPageBlocks(pageBlocks.filter((_, i) => i !== index));
+  };
+
+  const handleMoveBlock = (index: number, direction: "up" | "down") => {
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === pageBlocks.length - 1) return;
+    const updated = [...pageBlocks];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    const temp = updated[index];
+    updated[index] = updated[targetIndex];
+    updated[targetIndex] = temp;
+    setPageBlocks(updated);
+  };
+
+  const handleDragStart = (index: number) => setDraggedIndex(index);
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) return;
+    const updated = [...pageBlocks];
+    const draggedItem = updated[draggedIndex];
+    updated.splice(draggedIndex, 1);
+    updated.splice(index, 0, draggedItem);
+    setDraggedIndex(index);
+    setPageBlocks(updated);
   };
 
   const handleSaveDesign = async () => {
     setLoading(true);
     await supabase.from("custom_pages").update({ blocks: pageBlocks }).eq("id", designingPage.id);
-    alert(" Saved! Thiết kế của trang đã được đồng bộ lên mây.");
+    alert(" Saved! Thiết kế đa năng đã được đồng bộ lên mây.");
     setLoading(false);
     setDesigningPage(null);
     fetchPages();
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-8 font-sans relative">
+    <div className="min-h-screen bg-slate-50 p-6 md:p-8 font-sans relative">
       <h1 className="text-3xl font-bold text-slate-800 mb-6 flex items-center gap-3">🛡️ Bộ Chỉ Huy Hệ Thống</h1>
       
       <div className="flex gap-4 border-b border-slate-200 mb-8">
@@ -203,94 +262,207 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TAB 2: QUẢN TRỊ MENU TOÀN NĂNG */}
       {activeTab === "pages" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 h-fit space-y-6 max-h-[80vh] flex flex-col">
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
+          <div className="xl:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 h-fit space-y-6 max-h-[85vh] flex flex-col">
             <div className="flex justify-between items-center shrink-0">
-              <h2 className="text-xl font-bold text-slate-700">📌 Danh sách Menu</h2>
-              <button onClick={() => setEditingPageMeta({ title: "", icon: "📄", group_name: "VẬN HÀNH SẢN XUẤT", folder_name: "", route_url: "", order_index: 0 })} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs">+ Thêm Menu</button>
+              <h2 className="text-lg font-bold text-slate-700">📌 Danh sách Menu</h2>
+              <button onClick={() => setEditingPageMeta({ title: "", icon: "📄", group_name: "VẬN HÀNH SẢN XUẤT", folder_name: "", route_url: "", order_index: 0 })} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1.5 rounded-lg text-xs">+ Thêm</button>
             </div>
-
-            <div className="space-y-2 overflow-y-auto pr-2 pb-4">
+            <div className="space-y-2 overflow-y-auto pr-1 flex-1">
               {customPages.map(page => (
                 <div key={page.id} className={`p-3 rounded-xl border flex flex-col gap-2 transition-all ${designingPage?.id === page.id ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300' : 'bg-slate-50 hover:bg-slate-100'}`}>
                   <div className="flex justify-between items-start">
-                    <div className="flex flex-col truncate pr-2">
+                    <div className="flex flex-col truncate pr-2 w-full">
                       <span className="font-bold text-sm text-slate-700 truncate">{page.icon} {page.title}</span>
-                      <span className="text-[10px] text-slate-500 truncate mt-0.5">{page.group_name} {page.folder_name ? `> ${page.folder_name}` : ''}</span>
+                      <span className="text-[10px] text-slate-400 truncate mt-0.5">{page.group_name} {page.folder_name ? `> ${page.folder_name}` : ''}</span>
                     </div>
-                    <div className="flex gap-1 shrink-0">
-                      {!page.route_url && (
-                        <button onClick={() => openDesigner(page)} className="bg-blue-600 text-white text-[11px] px-2 py-1 rounded hover:bg-blue-700">🎨 Thiết kế</button>
-                      )}
-                      <button onClick={() => setEditingPageMeta(page)} className="bg-amber-500 text-white text-[11px] px-1.5 py-1 rounded hover:bg-amber-600">⚙ Cấu hình</button>
-                      <button onClick={() => handleDeletePage(page.id)} className="bg-red-500 text-white text-[11px] px-1.5 py-1 rounded hover:bg-red-600">🗑</button>
-                    </div>
+                  </div>
+                  <div className="flex gap-1 justify-end border-t pt-2 border-dashed border-slate-200">
+                    {!page.route_url && (
+                      <button onClick={() => openDesigner(page)} className="bg-blue-600 text-white text-[11px] px-2 py-1 rounded-md hover:bg-blue-700 font-bold">🎨 Thiết kế</button>
+                    )}
+                    <button onClick={() => setEditingPageMeta(page)} className="bg-slate-700 text-slate-200 text-[11px] px-2 py-1 rounded-md hover:bg-slate-800 font-bold">⚙ Cấu hình</button>
+                    <button onClick={() => handleDeletePage(page.id)} className="bg-red-500 text-white text-[11px] px-1.5 py-1 rounded-md hover:bg-red-600">🗑</button>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col min-h-[60vh]">
+          {/* CHIẾN TRƯỜNG THIẾT KẾ ĐA NĂNG */}
+          <div className="xl:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col max-h-[85vh] relative">
             {designingPage ? (
-              <div className="flex flex-col h-full flex-1">
-                <div className="p-5 border-b bg-slate-50 flex justify-between items-center">
-                  <div>
-                    <span className="text-xs font-bold text-blue-600 uppercase">Đang thiết kế trang:</span>
-                    <h2 className="text-xl font-extrabold text-slate-800">{designingPage.title}</h2>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleAddBlock("heading")} className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded-lg">+ Khối Tiêu Đề</button>
-                    <button onClick={() => handleAddBlock("text")} className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded-lg">+ Khối Nội Dung</button>
+              <div className="flex flex-col h-full flex-1 relative">
+                
+                <div className="p-5 border-b bg-slate-800 text-white flex justify-between items-center z-30">
+                  <div className="truncate">
+                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest block">Trang thiết kế:</span>
+                    <h2 className="text-lg font-extrabold truncate w-48 sm:w-full">{designingPage.title}</h2>
                   </div>
                 </div>
 
-                <div className="p-6 flex-1 overflow-y-auto space-y-4 bg-slate-50/50">
-                  {pageBlocks.map((block, index) => (
-                    <div key={index} className="bg-white p-4 rounded-xl border shadow-sm relative group">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${block.type === 'heading' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                          {block.type === 'heading' ? 'Khối Tiêu Đề' : 'Khối Nội Dung Văn Bản'}
-                        </span>
-                        <button onClick={() => handleRemoveBlock(index)} className="text-red-400 hover:text-red-600 text-xs font-bold">Xóa khối</button>
+                {/* ĐÃ THÊM: 2 NÚT THÊM KHỐI NEO CỐ ĐỊNH BÊN LỀ PHẢI Ở GIỮA MÀN HÌNH */}
+                <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-50 pointer-events-none">
+                  <button onClick={() => handleAddBlock("heading")} className="pointer-events-auto bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-3 rounded-xl transition-all shadow-2xl shadow-blue-600/30 flex items-center gap-2 border border-blue-500 hover:scale-105">
+                    <span className="text-lg">➕</span> Tiêu Đề
+                  </button>
+                  <button onClick={() => handleAddBlock("text")} className="pointer-events-auto bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-4 py-3 rounded-xl transition-all shadow-2xl shadow-purple-600/30 flex items-center gap-2 border border-purple-500 hover:scale-105">
+                    <span className="text-lg">📄</span> Văn Bản
+                  </button>
+                </div>
+
+                <div id="designer-workspace" className="p-6 flex-1 overflow-y-auto bg-slate-100/70 scroll-smooth pb-24 relative">
+                  <div className="grid grid-cols-12 gap-4">
+                    {pageBlocks.map((block, index) => (
+                      <div 
+                        id={block.id} 
+                        key={block.id || index}
+                        draggable
+                        onDragStart={() => handleDragStart(index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        className={`${block.width || 'col-span-12'} ${block.bgColor || 'bg-white'} p-4 rounded-2xl border border-slate-200 shadow-sm relative group/block transition-all duration-300 hover:shadow-md cursor-grab active:cursor-grabbing`}
+                      >
+                        <div className="flex flex-wrap gap-2 items-center justify-between mb-3 bg-slate-50 p-2 rounded-xl border border-slate-100 opacity-90 group-hover/block:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+                            <span className="cursor-move text-slate-400 mr-1" title="Kéo thả để đổi vị trí">☰</span>
+                            <button onClick={() => handleMoveBlock(index, "up")} className="hover:bg-slate-200 px-1.5 py-0.5 rounded" title="Dịch lên">▲</button>
+                            <button onClick={() => handleMoveBlock(index, "down")} className="hover:bg-slate-200 px-1.5 py-0.5 rounded" title="Dịch xuống">▼</button>
+                            <span className="ml-1 text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+                              {block.type === 'heading' ? 'TIÊU ĐỀ' : 'NỘI DUNG'}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5 items-center">
+                            <select 
+                              value={block.width || "col-span-12"} 
+                              onChange={e => handleBlockPropChange(index, "width", e.target.value)}
+                              className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600"
+                            >
+                              <option value="col-span-12">↔️ Rộng Full</option>
+                              <option value="col-span-6">🌓 Rộng 1/2</option>
+                              <option value="col-span-4">⅓ Rộng 1/3</option>
+                              <option value="col-span-3">¼ Rộng 1/4</option>
+                            </select>
+
+                            <select 
+                              value={block.bgColor || "bg-white"} 
+                              onChange={e => handleBlockPropChange(index, "bgColor", e.target.value)}
+                              className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600"
+                            >
+                              <option value="bg-white">⚪ Nền Trắng</option>
+                              <option value="bg-slate-50">📁 Nền Xám</option>
+                              <option value="bg-blue-50 text-blue-900">🔷 Nền Xanh</option>
+                              <option value="bg-amber-50 text-amber-900">🔶 Nền Vàng</option>
+                              <option value="bg-red-50 text-red-900">🛑 Nền Đỏ</option>
+                              <option value="bg-slate-800 text-white">⬛ Nền Đen</option>
+                            </select>
+
+                            <select 
+                              value={block.textColor || "text-slate-800"} 
+                              onChange={e => handleBlockPropChange(index, "textColor", e.target.value)}
+                              className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600"
+                            >
+                              <option value="text-slate-800">⚫ Chữ Đen</option>
+                              <option value="text-blue-600">🔵 Chữ Xanh Dương</option>
+                              <option value="text-amber-600">🟡 Chữ Vàng Cam</option>
+                              <option value="text-red-500">🔴 Chữ Đỏ</option>
+                              <option value="text-green-600">🟢 Chữ Xanh Lá</option>
+                              <option value="text-white">⚪ Chữ Trắng</option>
+                            </select>
+
+                            <select 
+                              value={block.textSize || "text-sm"} 
+                              onChange={e => handleBlockPropChange(index, "textSize", e.target.value)}
+                              className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600"
+                            >
+                              <option value="text-xs">Cỡ Nhỏ</option>
+                              <option value="text-sm">Cỡ Vừa</option>
+                              <option value="text-base">Cỡ Lớn</option>
+                              <option value="text-lg">Tiêu Đề Nhỏ</option>
+                              <option value="text-xl">Tiêu Đề Vừa</option>
+                              <option value="text-2xl">Tiêu Đề Lớn</option>
+                            </select>
+
+                            <button onClick={() => handleDuplicateBlock(index)} className="text-blue-600 bg-white hover:bg-blue-100 p-1.5 rounded-lg font-bold text-xs border border-blue-200 transition-colors ml-1" title="Nhân bản khối này">📑 Copy</button>
+                            <button onClick={() => handleRemoveBlock(index)} className="text-red-600 bg-white hover:bg-red-100 p-1.5 rounded-lg font-bold text-xs border border-red-200 transition-colors" title="Xóa khối này">🗑️ Xóa</button>
+                          </div>
+                        </div>
+                        
+                        <div className="mb-2.5">
+                          <input 
+                            type="text"
+                            value={block.title || ""}
+                            onChange={e => handleBlockPropChange(index, "title", e.target.value)}
+                            placeholder="🏷️ Nhập tiêu đề riêng cho khối này (Khóa tìm kiếm User ăn theo dòng này)..."
+                            className="w-full p-2 text-xs border border-slate-200 rounded-lg bg-slate-50 font-extrabold text-slate-700 outline-none focus:border-blue-400 transition-all"
+                          />
+                        </div>
+
+                        <div className="mb-3">
+                          <input 
+                            type="text"
+                            value={block.imageUrl || ""}
+                            onChange={e => handleBlockPropChange(index, "imageUrl", e.target.value)}
+                            placeholder="🖼️ Dán link ảnh đính kèm (URL) vào đây..."
+                            className="w-full p-2 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-600 font-mono outline-none focus:border-blue-400 transition-all"
+                          />
+                        </div>
+                        
+                        {block.type === "heading" ? (
+                          <input 
+                            type="text" 
+                            value={block.content} 
+                            onChange={e => handleBlockPropChange(index, "content", e.target.value)} 
+                            placeholder="✍️ Gõ nội dung chính..." 
+                            className={`w-full p-2 bg-transparent border-b border-dashed border-slate-300 outline-none font-extrabold ${block.textColor} ${block.textSize}`} 
+                          />
+                        ) : (
+                          <textarea 
+                            value={block.content} 
+                            onChange={e => handleBlockPropChange(index, "content", e.target.value)} 
+                            placeholder="✍️ Nhập văn bản ghi chú chi tiết..." 
+                            rows={4} 
+                            className={`w-full p-2 bg-transparent border border-dashed border-slate-200 rounded-xl outline-none resize-y ${block.textColor} ${block.textSize}`} 
+                          />
+                        )}
+
+                        {block.imageUrl && (
+                          <div className="mt-2 text-center border rounded-xl overflow-hidden bg-slate-50 max-h-48 flex items-center justify-center p-2">
+                            <img src={block.imageUrl} alt="Preview đính kèm" className="max-h-44 object-contain rounded" onError={(e)=>{(e.target as HTMLElement).style.display='none'}} />
+                          </div>
+                        )}
                       </div>
-                      
-                      {block.type === "heading" ? (
-                        <input type="text" value={block.content} onChange={e => handleBlockChange(index, e.target.value)} placeholder="Gõ tiêu đề đoạn vào đây..." className="w-full p-2.5 border rounded-lg outline-none focus:border-blue-500 font-bold" />
-                      ) : (
-                        <textarea value={block.content} onChange={e => handleBlockChange(index, e.target.value)} placeholder="Gõ ghi chú, văn bản hướng dẫn chi tiết vào đây..." rows={3} className="w-full p-2.5 border rounded-lg outline-none focus:border-blue-500 text-sm" />
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                   
                   {pageBlocks.length === 0 && (
-                    <p className="text-slate-400 text-sm italic text-center py-12">Trang đang trống, anh hai bấm nút góc phải ở trên để thêm cấu trúc nhé!</p>
+                    <div className="text-center py-24 text-slate-400 italic bg-white rounded-2xl border-2 border-dashed border-slate-300">
+                      🚀 Trang chưa có nội dung! Bấm nút thêm khối bên phải để kiến thiết nhé!
+                    </div>
                   )}
                 </div>
 
-                <div className="p-4 bg-white border-t flex justify-end gap-3">
-                  <button onClick={() => setDesigningPage(null)} className="px-5 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100">Hủy</button>
-                  <button onClick={handleSaveDesign} className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-2 rounded-xl text-sm shadow-md shadow-green-500/20">💾 Lưu Bản Thiết Kế</button>
+                <div className="p-4 bg-white border-t flex justify-end gap-3 shrink-0 absolute bottom-0 right-0 w-full rounded-b-2xl shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-40">
+                  <button onClick={() => setDesigningPage(null)} className="px-5 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100">Hủy bỏ</button>
+                  <button onClick={handleSaveDesign} className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-2 rounded-xl text-sm shadow-md shadow-green-500/20">💾 Lưu Bản Thiết Kế Đa Năng</button>
                 </div>
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center p-12 text-slate-400 italic">
-                <span>🎨 Bấm "Thiết kế" ở một trang bất kỳ bên trái (Trang không có link cứng) để bắt đầu.</span>
+                <span className="text-5xl mb-4">🎨</span>
+                <span className="text-center max-w-md">Xưởng kiến trúc trang động đang đợi lệnh. Anh hai hãy bấm chọn nút "🎨 Thiết kế" ở một trang bất kỳ tại danh sách bên trái để bắt đầu ra chiêu!</span>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* HỘP THOẠI CHỈNH SỬA TOÀN NĂNG (MODAL) */}
+      {/* MODAL CẤU HÌNH MENU */}
       {editingPageMeta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl">
             <h2 className="text-xl font-extrabold text-blue-700 mb-6 border-b pb-3">{editingPageMeta.id ? '⚙️ Cấu Hình Menu' : '➕ Thêm Menu Mới'}</h2>
-            
             <div className="space-y-4">
                <div className="flex gap-4">
                  <div className="w-24 shrink-0">
@@ -302,21 +474,18 @@ export default function AdminPage() {
                    <input type="text" value={editingPageMeta.title} onChange={e => setEditingPageMeta({...editingPageMeta, title: e.target.value})} className="w-full p-2.5 border rounded-lg outline-none focus:border-blue-500 font-bold" />
                  </div>
                </div>
-               
                <div>
                  <label className="block text-xs font-bold mb-1.5 text-slate-500">Nhóm hiển thị (vd: VẬN HÀNH SẢN XUẤT)</label>
                  <input type="text" value={editingPageMeta.group_name} onChange={e => setEditingPageMeta({...editingPageMeta, group_name: e.target.value.toUpperCase()})} className="w-full p-2.5 border rounded-lg outline-none focus:border-blue-500 uppercase" />
                </div>
-               
                <div>
-                 <label className="block text-xs font-bold mb-1.5 text-slate-500">Thư mục con (để trống nếu muốn nó đứng riêng ở ngoài)</label>
+                 <label className="block text-xs font-bold mb-1.5 text-slate-500">Thư mục con (để trống nếu đứng riêng)</label>
                  <input type="text" value={editingPageMeta.folder_name || ""} onChange={e => setEditingPageMeta({...editingPageMeta, folder_name: e.target.value})} className="w-full p-2.5 border rounded-lg outline-none focus:border-blue-500" placeholder="vd: Thông số xưởng cán" />
                </div>
-
                <div className="flex gap-4">
                  <div className="flex-1">
                    <label className="block text-xs font-bold mb-1.5 text-slate-500">Link trỏ đến (route_url)</label>
-                   <input type="text" value={editingPageMeta.route_url || ""} onChange={e => setEditingPageMeta({...editingPageMeta, route_url: e.target.value})} className="w-full p-2.5 border rounded-lg outline-none focus:border-blue-500" placeholder="vd: /xuong-can/dang-cho (Bỏ trống = Trang thiết kế)" />
+                   <input type="text" value={editingPageMeta.route_url || ""} onChange={e => setEditingPageMeta({...editingPageMeta, route_url: e.target.value})} className="w-full p-2.5 border rounded-lg outline-none focus:border-blue-500" placeholder="vd: /xuong-can/dang-cho (Trống = Trang tự thiết kế)" />
                  </div>
                  <div className="w-24 shrink-0">
                    <label className="block text-xs font-bold mb-1.5 text-slate-500">Thứ tự xếp</label>
@@ -324,7 +493,6 @@ export default function AdminPage() {
                  </div>
                </div>
             </div>
-            
             <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
               <button onClick={() => setEditingPageMeta(null)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-all">Hủy bỏ</button>
               <button onClick={handleSavePageMeta} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md shadow-blue-500/30 transition-all">Lưu Cấu Hình</button>
@@ -332,7 +500,6 @@ export default function AdminPage() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
