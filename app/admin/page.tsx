@@ -2,6 +2,118 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
+// --- LÕI BÓC TÁCH DRIVE BẰNG API KEY TRỰC TIẾP ---
+const DriveFolderViewer = ({ url }: { url: string }) => {
+  const [data, setData] = useState<{ readme: string, files: any[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    if (!url || url.trim() === "") return;
+    
+    // Tự động gạn lọc: Dù anh hai dán link dài hay chỉ dán Folder ID thì hệ thống vẫn lấy chuẩn
+    let folderId = url.trim();
+    if (folderId.includes("drive.google.com")) {
+      const match = folderId.match(/(?:folders\/|id=)([a-zA-Z0-9-_]+)/);
+      folderId = match ? match[1] : "";
+    }
+
+    if (folderId) {
+      setLoading(true);
+      setErrorMsg("");
+      
+      const API_KEY = 'AIzaSyB-WBOZfXXZgehcn-8TOXG-mlE7pxfqPk8';
+      const apiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&key=${API_KEY}`;
+
+      fetch(apiUrl)
+        .then(res => {
+          if (!res.ok) throw new Error("Mã Folder ID sai hoặc chưa Share Public");
+          return res.json();
+        })
+        .then(async (json) => {
+          if (json.error) throw new Error(json.error.message);
+          const files = json.files || [];
+          
+          // Động cơ quét tìm file README tự động
+          const readmeFile = files.find((f: any) => f.name.toLowerCase() === 'readme.md' || f.name.toLowerCase() === 'readme.txt');
+          let readmeContent = "📌 Thư mục này không có file README.md hoặc readme.txt.";
+          
+          if (readmeFile) {
+            try {
+              const readmeRes = await fetch(`https://www.googleapis.com/drive/v3/files/${readmeFile.id}?alt=media&key=${API_KEY}`);
+              if (readmeRes.ok) {
+                readmeContent = await readmeRes.text();
+              }
+            } catch (e) {
+              readmeContent = "⚠️ Có lỗi khi cố tải nội dung file README.";
+            }
+          }
+
+          // Phân loại tệp tin và gán Icon siêu thông minh
+          const displayFiles = files.filter((f: any) => f.id !== readmeFile?.id).map((f: any) => {
+            let icon = '📄';
+            const nameLower = f.name.toLowerCase();
+            if (nameLower.endsWith('.pdf')) icon = '📕';
+            else if (nameLower.endsWith('.exe') || nameLower.endsWith('.msi')) icon = '📦';
+            else if (nameLower.endsWith('.zip') || nameLower.endsWith('.rar') || nameLower.endsWith('.7z')) icon = '📚';
+            else if (nameLower.endsWith('.doc') || nameLower.endsWith('.docx')) icon = '📝';
+            else if (nameLower.endsWith('.xls') || nameLower.endsWith('.xlsx')) icon = '📊';
+            else if (nameLower.endsWith('.png') || nameLower.endsWith('.jpg')) icon = '🖼️';
+            else if (f.mimeType === 'application/vnd.google-apps.folder') icon = '📁';
+            return { name: f.name, icon, id: f.id };
+          });
+
+          setData({ readme: readmeContent, files: displayFiles });
+          setLoading(false);
+        })
+        .catch((err) => {
+          setErrorMsg(`❌ Báo cáo: Không lấy được dữ liệu! (${err.message}). Anh hai nhớ kiểm tra lại Folder ID và đảm bảo thư mục Drive đã bật "Bất kỳ ai có liên kết".`);
+          setLoading(false);
+        });
+    }
+  }, [url]);
+
+  if (!url || url.trim() === "") return null;
+
+  return (
+    <div className="mt-6 border-t border-slate-200 border-dashed pt-5 w-full animate-fade-in">
+      <div className="flex items-center gap-2 mb-4 text-sm font-bold text-blue-700 bg-blue-50 w-max px-4 py-1.5 rounded-full border border-blue-200">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2zm0 2v14h10V5H7z"/></svg>
+        Kho Phần Mềm Đính Kèm
+      </div>
+      
+      {loading ? (
+        <div className="h-40 flex items-center justify-center bg-slate-50 rounded-2xl border border-slate-200 text-blue-500 font-bold animate-pulse text-base">
+          ⏳ Đang kết nối trực tiếp vào Google Drive để quét...
+        </div>
+      ) : errorMsg ? (
+        <div className="h-40 flex items-center justify-center bg-red-50 rounded-2xl border border-red-200 text-red-500 font-bold text-sm px-6 text-center">
+          {errorMsg}
+        </div>
+      ) : data ? (
+        <div className="flex flex-col lg:flex-row gap-5 h-80">
+          <div className="flex-[2] bg-slate-900 text-slate-200 p-6 rounded-2xl overflow-y-auto shadow-inner custom-scrollbar relative group">
+            <span className="absolute top-0 right-0 bg-blue-600 text-[10px] text-white font-extrabold px-3 py-1 rounded-bl-xl tracking-widest uppercase shadow-md">Tài liệu README</span>
+            <pre className="text-sm font-mono whitespace-pre-wrap leading-relaxed mt-2">{data.readme}</pre>
+          </div>
+          <div className="flex-1 bg-white border border-slate-200 rounded-2xl overflow-y-auto shadow-sm p-3 custom-scrollbar">
+            <span className="block text-xs font-bold text-slate-400 uppercase tracking-widest px-2 mb-3 border-b border-slate-100 pb-2">Danh sách tệp tin</span>
+            <div className="flex flex-col gap-1.5">
+              {data.files.map((file, i) => (
+                <div key={i} className="flex items-center gap-3 p-3 hover:bg-blue-50 hover:shadow-sm rounded-xl cursor-pointer border border-transparent hover:border-blue-100 transition-all">
+                  <span className="text-2xl drop-shadow-sm">{file.icon}</span>
+                  <span className="text-sm font-bold text-slate-700 truncate">{file.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+// -----------------------------------------------------------
+
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"users" | "pages">("users");
   const [users, setUsers] = useState([]);
@@ -17,6 +129,7 @@ export default function AdminPage() {
   
   const [editingPageMeta, setEditingPageMeta] = useState<any | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [searchBlockQuery, setSearchBlockQuery] = useState("");
 
   useEffect(() => {
     fetchUsers();
@@ -109,6 +222,7 @@ export default function AdminPage() {
   const openDesigner = (page: any) => {
     setDesigningPage(page);
     setPageBlocks(page.blocks || []);
+    setSearchBlockQuery("");
   };
 
   const handleAddBlock = (type: "heading" | "text") => {
@@ -118,6 +232,7 @@ export default function AdminPage() {
       title: "",
       content: "",
       imageUrl: "",
+      driveUrl: "", 
       width: "col-span-12", 
       bgColor: "bg-white",
       textColor: "text-slate-800",
@@ -290,7 +405,6 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* CHIẾN TRƯỜNG THIẾT KẾ ĐA NĂNG */}
           <div className="xl:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col max-h-[85vh] relative">
             {designingPage ? (
               <div className="flex flex-col h-full flex-1 relative">
@@ -302,7 +416,6 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                {/* ĐÃ THÊM: 2 NÚT THÊM KHỐI NEO CỐ ĐỊNH BÊN LỀ PHẢI Ở GIỮA MÀN HÌNH */}
                 <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-50 pointer-events-none">
                   <button onClick={() => handleAddBlock("heading")} className="pointer-events-auto bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-3 rounded-xl transition-all shadow-2xl shadow-blue-600/30 flex items-center gap-2 border border-blue-500 hover:scale-105">
                     <span className="text-lg">➕</span> Tiêu Đề
@@ -334,22 +447,14 @@ export default function AdminPage() {
                           </div>
 
                           <div className="flex flex-wrap gap-1.5 items-center">
-                            <select 
-                              value={block.width || "col-span-12"} 
-                              onChange={e => handleBlockPropChange(index, "width", e.target.value)}
-                              className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600"
-                            >
+                            <select value={block.width || "col-span-12"} onChange={e => handleBlockPropChange(index, "width", e.target.value)} className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600">
                               <option value="col-span-12">↔️ Rộng Full</option>
                               <option value="col-span-6">🌓 Rộng 1/2</option>
                               <option value="col-span-4">⅓ Rộng 1/3</option>
                               <option value="col-span-3">¼ Rộng 1/4</option>
                             </select>
 
-                            <select 
-                              value={block.bgColor || "bg-white"} 
-                              onChange={e => handleBlockPropChange(index, "bgColor", e.target.value)}
-                              className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600"
-                            >
+                            <select value={block.bgColor || "bg-white"} onChange={e => handleBlockPropChange(index, "bgColor", e.target.value)} className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600">
                               <option value="bg-white">⚪ Nền Trắng</option>
                               <option value="bg-slate-50">📁 Nền Xám</option>
                               <option value="bg-blue-50 text-blue-900">🔷 Nền Xanh</option>
@@ -358,11 +463,7 @@ export default function AdminPage() {
                               <option value="bg-slate-800 text-white">⬛ Nền Đen</option>
                             </select>
 
-                            <select 
-                              value={block.textColor || "text-slate-800"} 
-                              onChange={e => handleBlockPropChange(index, "textColor", e.target.value)}
-                              className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600"
-                            >
+                            <select value={block.textColor || "text-slate-800"} onChange={e => handleBlockPropChange(index, "textColor", e.target.value)} className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600">
                               <option value="text-slate-800">⚫ Chữ Đen</option>
                               <option value="text-blue-600">🔵 Chữ Xanh Dương</option>
                               <option value="text-amber-600">🟡 Chữ Vàng Cam</option>
@@ -371,11 +472,7 @@ export default function AdminPage() {
                               <option value="text-white">⚪ Chữ Trắng</option>
                             </select>
 
-                            <select 
-                              value={block.textSize || "text-sm"} 
-                              onChange={e => handleBlockPropChange(index, "textSize", e.target.value)}
-                              className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600"
-                            >
+                            <select value={block.textSize || "text-sm"} onChange={e => handleBlockPropChange(index, "textSize", e.target.value)} className="text-[11px] font-bold p-1 border rounded bg-white outline-none text-slate-600">
                               <option value="text-xs">Cỡ Nhỏ</option>
                               <option value="text-sm">Cỡ Vừa</option>
                               <option value="text-base">Cỡ Lớn</option>
@@ -399,7 +496,7 @@ export default function AdminPage() {
                           />
                         </div>
 
-                        <div className="mb-3">
+                        <div className="grid grid-cols-2 gap-3 mb-3">
                           <input 
                             type="text"
                             value={block.imageUrl || ""}
@@ -407,24 +504,19 @@ export default function AdminPage() {
                             placeholder="🖼️ Dán link ảnh đính kèm (URL) vào đây..."
                             className="w-full p-2 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-600 font-mono outline-none focus:border-blue-400 transition-all"
                           />
+                          <input 
+                            type="text"
+                            value={block.driveUrl || ""}
+                            onChange={e => handleBlockPropChange(index, "driveUrl", e.target.value)}
+                            placeholder="📂 Nhập mã Folder ID của Google Drive vào đây..."
+                            className="w-full p-2 text-xs border border-blue-200 rounded-lg bg-blue-50 text-blue-700 font-mono outline-none focus:border-blue-500 transition-all placeholder:text-blue-300"
+                          />
                         </div>
                         
                         {block.type === "heading" ? (
-                          <input 
-                            type="text" 
-                            value={block.content} 
-                            onChange={e => handleBlockPropChange(index, "content", e.target.value)} 
-                            placeholder="✍️ Gõ nội dung chính..." 
-                            className={`w-full p-2 bg-transparent border-b border-dashed border-slate-300 outline-none font-extrabold ${block.textColor} ${block.textSize}`} 
-                          />
+                          <input type="text" value={block.content} onChange={e => handleBlockPropChange(index, "content", e.target.value)} placeholder="✍️ Gõ nội dung chính..." className={`w-full p-2 bg-transparent border-b border-dashed border-slate-300 outline-none font-extrabold ${block.textColor} ${block.textSize}`} />
                         ) : (
-                          <textarea 
-                            value={block.content} 
-                            onChange={e => handleBlockPropChange(index, "content", e.target.value)} 
-                            placeholder="✍️ Nhập văn bản ghi chú chi tiết..." 
-                            rows={4} 
-                            className={`w-full p-2 bg-transparent border border-dashed border-slate-200 rounded-xl outline-none resize-y ${block.textColor} ${block.textSize}`} 
-                          />
+                          <textarea value={block.content} onChange={e => handleBlockPropChange(index, "content", e.target.value)} placeholder="✍️ Nhập văn bản ghi chú chi tiết..." rows={4} className={`w-full p-2 bg-transparent border border-dashed border-slate-200 rounded-xl outline-none resize-y ${block.textColor} ${block.textSize}`} />
                         )}
 
                         {block.imageUrl && (
@@ -432,6 +524,8 @@ export default function AdminPage() {
                             <img src={block.imageUrl} alt="Preview đính kèm" className="max-h-44 object-contain rounded" onError={(e)=>{(e.target as HTMLElement).style.display='none'}} />
                           </div>
                         )}
+
+                        {block.driveUrl && <DriveFolderViewer url={block.driveUrl} />}
                       </div>
                     ))}
                   </div>
